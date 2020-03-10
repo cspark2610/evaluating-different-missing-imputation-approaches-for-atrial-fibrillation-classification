@@ -1,7 +1,7 @@
-Introduction
+##Introduction
 Missing data imputation has the potential to have enormous implications on studies and findings. In certain circumstances imputing missing data may be deemed necessary, however, wrongful imputation of missing data, either by type of method or mishandling or misusage by investigators, can lead to biases and/ or inappropriate results. Therefore, it is imperative to have knowledge in the various methodologies of missing data imputation. This study will analyze and assess the impacts of different imputation methodologies, in conjunction with evaluating which method renders the most appropriate outcome. 
 
-Dataset
+##Dataset
 The dataset that will be used for this study concerns different chest pain type based on factors such as age, gender, cholesterol levels (mg/dL), and resting blood pressure (mmHg). The chest pain type (cp) is a binary outcome variable that is defined by typical (1) and atypical angina pectoris (0). Age (ï..age) is a continuous, numerical variable which has been restricted to populations > 29 years old. Resting blood pressure (trestbps) and cholesterol (chol) are both continuous, numerical variables that were taken by a trained professional at admission of study. Gender (sex) is a binary variable coded as male and female.
 
 Methods
