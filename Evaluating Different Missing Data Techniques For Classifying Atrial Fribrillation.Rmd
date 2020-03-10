@@ -1,0 +1,279 @@
+---
+title: "Evaluating Different Missing Data Techniques For Classifying Atrial Fribrillation"
+author: "Christopher Park"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+###Load Data set
+
+```{r load dataset}
+heart <- read.csv("heart.csv", header = T)
+```
+###Complete Model
+```{r}
+fit.complete <- glm(cp ~ as.factor(sex) + trestbps + chol + �..age, data = heart, family = binomial(link=logit))
+summary(fit.complete)
+summary(heart)
+```
+
+###Generate 10% MAR for each predictor using MICE
+
+```{r generate MAR}
+library(mice)
+ampute(heart)
+heart.mis <- ampute(heart[1:4], prop = 0.5, mech = "MAR")$amp
+n = nrow(heart.mis)
+sum(is.na(heart.mis$sex))/n
+sum(is.na(heart.mis$cp))/n
+sum(is.na(heart.mis$trestbps))/n
+sum(is.na(heart.mis$�..age))/n
+heart.mis$chol <- heart$chol
+summary(heart.mis)
+detach("package:mice", unload = T)
+```
+
+###1. Listwise Deletion
+
+```{r Listwise Deletion}
+fit.lw <- glm(cp ~ as.factor(sex) + trestbps + chol + �..age, data = heart.mis, family=binomial(link=logit))
+summary(fit.lw)
+fit.complete
+```
+
+###2. Mean/Mode Imputation
+
+#### Mean Imputation Function
+```{r mean imputation function}
+mean.imp <- function (a){
+  missing <- is.na(a)
+  a.obs <- a[!missing]
+  imputed <- a
+  imputed[missing] <- mean(a.obs)
+  return (imputed)
+}
+
+mode = function(x)
+{
+  ta = table(x)
+  tam = max(ta)
+  if (all(ta == tam))
+    mod = NA
+  else
+    mod = names(ta)[ta == tam]
+  return(mod)
+}
+
+mode.imp <- function(a)
+{
+  missing <- is.na(a)
+  a.obs <- a[!missing]
+  imputed <- a
+  imputed[missing] <- mode(a.obs)
+  return(imputed)
+}  
+```
+
+```{r Mean.Mode Imputation}
+age.mean.imp <- mean.imp(heart.mis$�..age)
+
+trestbps.mean.imp <- mean.imp(heart.mis$trestbps)
+
+sex.mode.imp <- mode.imp(heart.mis$sex)
+
+cp.mode.imp <- mode.imp(heart.mis$cp)
+
+fit.mm <- glm(as.numeric(cp.mode.imp) ~ as.factor(sex.mode.imp) + trestbps.mean.imp + chol + age.mean.imp, data = heart.mis, family = binomial(link=logit))
+summary(fit.mm)
+```
+###3. Random Imputation
+
+###Random Imputation Function
+```{r random imputation function}
+random.imp <- function (a){
+  missing <- is.na(a)
+  n.missing <- sum(missing)
+  a.obs <- a[!missing]
+  imputed <- a
+  imputed[missing] <- sample (a.obs, n.missing, replace=TRUE)
+  return (imputed)
+}
+```
+
+```{r random imputation}
+age.random.imp <- random.imp(heart.mis$�..age)
+
+trestbps.random.imp <- random.imp(heart.mis$trestbps)
+
+sex.random.imp <- random.imp(heart.mis$sex)
+
+cp.random.imp <- random.imp(heart.mis$cp)
+
+fit.ri <- glm(cp.random.imp~sex.random.imp + trestbps.random.imp + chol + age.random.imp, data = heart.mis, family = binomial(link=logit))
+summary(fit.ri)
+```
+
+###4. Dummy variable on predictors
+###Dummy variable function
+
+```{r dummy variable function}
+zero.imp <- function (a){
+  missing <- is.na(a)
+  a.obs <- a[!missing]
+  imputed <- a
+  imputed[missing] <- 0
+  return (imputed)
+}
+```
+
+```{r dummy variable imputation}
+age.d.imp <- zero.imp(heart.mis$�..age)
+
+trestbps.d.imp <- zero.imp(heart.mis$trestbps)
+
+sex.d.imp <- zero.imp(heart.mis$sex)
+fit.di <- glm(heart$cp ~ as.factor(sex.d.imp) + trestbps.d.imp + chol + age.d.imp, data = heart.mis, family = binomial(link=logit))
+summary(fit.di)
+```
+
+###5. LVCF not applicable with my dataset because it is not a time series dataset.
+
+###6. Hotdecking(Nearest neighbor)
+```{r hotdecking formula}
+library(VIM)
+heart.mis2 <- hotdeck(heart.mis)
+fit.hotdeck.imp <- glm(cp ~ �..age + trestbps + chol + as.factor(sex), data = heart.mis2, family=binomial(link=logit))
+summary(fit.hotdeck.imp)
+```
+
+###7. Regression Imputation
+
+```{r regression imputation}
+library(mice)
+#binary variables = cp, sex
+#numerical variables = age, trestbps
+
+m.age = cbind(heart$cp, heart.mis$�..age, heart$sex, heart$chol, heart$trestbps)
+m.trestbps = cbind(heart$cp, heart$�..age, heart$sex, heart$chol, heart.mis$trestbps)
+
+Ry = as.numeric(!is.na(heart.mis$sex))
+sex.cc = as.data.frame(cbind(heart.mis$sex, heart$cp, heart$�..age, heart$chol, heart$trestbps)[Ry == 1, ])
+sex.dropped = as.data.frame(cbind(heart.mis$sex, heart$cp, heart$�..age, heart$chol, heart$trestbps)[Ry ==0, ])
+
+Rx = as.numeric(!is.na(heart.mis$cp))
+cp.cc = as.data.frame(cbind(heart.mis$cp, heart$sex,  heart$�..age, heart$chol, heart$trestbps)[Rx==1,])
+cp.dropped = as.data.frame(cbind(heart.mis$cp, heart$sex,  heart$�..age, heart$chol, heart$trestbps)[Rx ==0,])
+
+#age 
+fit.age = lm(heart.mis$�..age~heart$cp + heart$sex+ heart$chol + heart$trestbps)
+pred.age = predict(fit.age, newdata = ic(as.data.frame(m.age)))
+
+#trestbps 
+fit.trestbps = lm(heart.mis$trestbps~heart$cp + heart$�..age + heart$sex + heart$chol)
+pred.trestbps = predict(fit.trestbps, newdata = ic(as.data.frame(m.trestbps)))
+
+#sex
+fit.sex <- glm(heart.mis$sex ~ heart$cp + heart$�..age + heart$chol + heart$trestbps, family = "binomial"(link=logit))
+pred.sex <- predict(fit.sex, newdata = sex.dropped, type = "response")
+pred.sex = pred.sex[Ry == 1] = round(pred.sex,0)
+#cp
+fit.cp <- glm(heart.mis$cp ~ heart$sex + heart$�..age + heart$chol + heart$trestbps, family = "binomial")
+pred.cp <- predict(fit.cp, newdata = cp.dropped, type = "response")
+pred.cp = pred.cp[Rx == 1] = round(pred.cp,0)
+
+fit.reg <- glm(pred.cp ~ pred.sex + pred.trestbps + heart.mis$chol + pred.age, family=binomial(link=logit))
+summary(fit.reg)
+```
+
+###8a. Regression imputation with noise only on numerical and dichotomous variables.
+```{r regression imputation with noise}
+library(mice)
+
+#noise imp for age
+noise.age <- rnorm(length(pred.age),0,summary(fit.age)$sigma)
+age.pred.noise = pred.age + noise.age
+
+#noise imp for trestbps
+noise.trestbps <- rnorm(length(pred.trestbps),0,summary(fit.trestbps)$sigma)
+trestbps.pred.noise = pred.trestbps + noise.trestbps
+
+#noise imp for sex
+l.imp <- predict(fit.sex, newdata = heart, type="response")
+l.predict = is.na(heart.mis$sex) = rbinom(sum(is.na(heart.mis$sex)==1),1, l.imp)
+noise.sex <- ifelse(is.na(heart.mis$sex)==1, l.predict, heart.mis$sex)
+
+##noise imp for cp
+l.imp2 <- predict(fit.cp, newdata = heart, type="response")
+l.predict2 = is.na(heart.mis$cp) = rbinom(sum(is.na(heart.mis$cp)==1),1,l.imp2)
+noise.cp <- ifelse(is.na(heart.mis$cp)==1, l.predict2, heart.mis$cp)
+
+reg.imp <- glm(noise.cp ~ noise.sex + trestbps.pred.noise + heart.mis$chol + age.pred.noise, family=binomial(link=logit))
+summary(reg.imp)
+detach("package:mice", unload = T)
+```
+###Generate 20% MAR for each predictor using MICE
+
+```{r generate MAR}
+str(heart.mis)
+library(mice)
+ampute(heart)
+heart.mis <- ampute(heart[1:4], prop = 0.95, mech = "MAR")$amp
+n = nrow(heart.mis)
+sum(is.na(heart.mis$sex))/n
+sum(is.na(heart.mis$cp))/n
+sum(is.na(heart.mis$trestbps))/n
+sum(is.na(heart.mis$�..age))/n
+heart.mis$chol <- heart$chol
+summary(heart.mis)
+detach("package:mice", unload = T)
+```
+
+###8b. Multiple imputation
+```{r MI}
+library(mi)
+mdf <- missing_data.frame(heart.mis)
+
+summary(mdf)
+image(mdf)
+show(mdf)
+
+heart.mi.imp <- mi(mdf,seed=124, n.iter = 100, n.chains=5)
+converged <- mi2BUGS(heart.mi.imp)
+
+
+mean_cp = converged[, , 1]
+mean_sex = converged[, , 2]
+mean_chol = converged[, , 3]
+mean_age = converged[, , 4]
+mean_trestbps = converged[, , 5]
+
+ts.plot(mean_cp[,1], col=1)
+lines(mean_cp[,2], col=2)
+lines(mean_cp[,3], col=3)
+lines(mean_cp[,4], col=4)
+?ts.plot
+plot(heart.mi.imp)
+#project - charts summaries 
+
+#attempt to change for project
+#Change
+mdf <- change(mdf, y = "cp", what = "family", to = binomial(link = logit))
+mdf <- change(mdf, y = "sex", what = "family", to = binomial(link = logit))
+mdf <- change(mdf, y = "�..age", what = "imputation_method", type = "continuous", to = "pmm")
+mdf <- change(mdf, y = "trestbps", what = "imputation_method", type = "continuous", to = "pmm")
+heart.mi.imp2 <- mi(mdf, seed = 124, n.iter = 100, n.chains = 5)
+converged2 <- mi2BUGS(heart.mi.imp2)
+plot(heart.mi.imp2)
+
+Rhats(heart.mi.imp)
+Rhats(heart.mi.imp2)
+
+#Pooled analyses
+res.heart = pool(cp ~ sex + chol + �..age + trestbps, data=heart.mi.imp2, family=binomial(link=logit))
+
+display(res.heart)
+```
+
